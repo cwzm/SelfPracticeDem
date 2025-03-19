@@ -118,3 +118,85 @@ for l3=1:n3
     if n3>1, set(gcf,'name',sprintf('Slice%d',l3)); end
     grid on
 end
+
+
+%%峰计算
+
+% 设定参数
+[n1, n2, n3, n4] = size(ss);  % 获取 CSI 数据维度
+slice_index = round(n4 / 2);  % 选择中间切片
+
+% 初始化峰积分数据
+peak_integrals = {}; % 使用 cell 数组存储不同峰的积分矩阵
+peak_count = 0; % 记录实际检测到的峰数
+
+% 遍历每个体素并计算峰积分
+for x = 1:n2
+    for y = 1:n3
+        spectrum = squeeze(ss(:, x, y, slice_index)); % 获取该体素的谱线
+        
+        % 识别谱峰（调整参数提高检测能力）
+        [pks, locs, widths] = findpeaks(spectrum, 'MinPeakProminence', 0.05, 'MinPeakHeight', max(spectrum)*0.1);
+        
+        % 显示峰信息
+        fprintf('Voxel (%d, %d): Found %d peaks\n', x, y, length(pks));
+        for i = 1:length(pks)
+            fprintf('   Peak %d: Location = %.3f ppm, Width = %.3f\n', i, locs(i), widths(i));
+        end
+        
+        % 记录峰的积分
+        for i = 1:length(pks)
+            if length(peak_integrals) < i
+                peak_integrals{i} = zeros(n2, n3); % 初始化新的峰积分矩阵
+                peak_count = peak_count + 1;
+            end
+            peak_integrals{i}(x, y) = sum(widths(i) * pks(i)); % 计算峰积分
+        end
+    end
+end
+
+% 绘制峰的积分分布（灰度图）
+for i = 1:peak_count
+    if max(peak_integrals{i}(:)) > 0  % 仅绘制非空峰图
+        figure;
+        imagesc(peak_integrals{i}); % 颜色填充
+        colormap(gray); % 采用灰度映射
+        colorbar; % 添加颜色条
+        title(sprintf('Peak %d Integral Map', i));
+        xlabel('X Axis (Voxel)');
+        ylabel('Y Axis (Voxel)');
+    end
+end
+
+
+%%位置标注
+
+% 计算总谱线信号
+total_spectrum = sum(sum(sum(ss, 2), 3), 4);
+
+% 设定 ppm 轴（假设从 i 到 j ppm）
+ppm_axis = linspace(-176, -166, length(total_spectrum));
+
+% 平滑总谱线以减少噪声影响
+smoothed_spectrum = movmean(total_spectrum, 3); % 3 点滑动平均
+
+% 识别峰位置
+peak_mask = islocalmax(smoothed_spectrum, 'MinProminence', 0.02); 
+peak_indices = find(peak_mask);
+
+% 绘制总谱线
+figure;
+plot(ppm_axis, total_spectrum, 'b', 'LineWidth', 1.5);
+hold on;
+
+% 标注峰位置（黑色虚线）
+for i = 1:length(peak_indices)
+    xline(ppm_axis(peak_indices(i)), '--k', 'LineWidth', 1.2);
+end
+
+% 图像美化
+title('Total Spectrum with Peak Positions');
+xlabel('Chemical Shift (ppm)');
+ylabel('Signal Intensity');
+set(gca, 'XDir', 'reverse'); % ppm 轴通常是反向的
+hold off;
